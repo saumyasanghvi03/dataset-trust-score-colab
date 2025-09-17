@@ -1,3 +1,8 @@
+import streamlit as st
+st.write("🚦 App loaded! Ready for user action.")
+print("App started.")
+
+
 #!/usr/bin/env python3
 """
 Dataset Trust Score Application for CIFAR-10
