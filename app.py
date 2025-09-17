@@ -1,8 +1,6 @@
 import streamlit as st
 st.write("🚦 App loaded! Ready for user action.")
 print("App started.")
-
-
 #!/usr/bin/env python3
 """
 Dataset Trust Score Application for CIFAR-10
@@ -10,18 +8,15 @@ This script loads the CIFAR-10 dataset, allows selection of clean or poisoned su
 and runs the Dataset Trust Score logic in standalone mode, outputting verdict and
 confidence to the console.
 """
-
 # Add logging at the very top
 import streamlit as st
 st.write("App initialization started...")
 print("Console: App initialization started...")
-
 import os
 import sys
 import numpy as np
 import argparse
 from typing import Tuple, Optional
-
 # Import required libraries
 try:
     import tensorflow as tf
@@ -174,15 +169,16 @@ class DatasetTrustScorer:
                                     f'Loss: {logs.get("loss", 0):.4f} - '
                                     f'Accuracy: {logs.get("accuracy", 0):.4f}')
             
-            # Train the model
-            history = model.fit(
-                x_train, y_train,
-                batch_size=32,
-                epochs=10,
-                validation_data=(x_test, y_test),
-                callbacks=[early_stop, StreamlitCallback()],
-                verbose=0
-            )
+            # Train the model with spinner
+            with st.spinner("Training the model... (this can take 1-2 minutes)"):
+                history = model.fit(
+                    x_train, y_train,
+                    batch_size=32,
+                    epochs=10,
+                    validation_data=(x_test, y_test),
+                    callbacks=[early_stop, StreamlitCallback()],
+                    verbose=0
+                )
             
             progress_bar.progress(1.0)
             status_text.text("Training completed!")
