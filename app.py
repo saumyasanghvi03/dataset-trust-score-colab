@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """
 Dataset Trust Score Application for CIFAR-10
-
 This script loads the CIFAR-10 dataset, allows selection of clean or poisoned subsets,
 and runs the Dataset Trust Score logic in standalone mode, outputting verdict and
 confidence to the console.
 """
+
+# Add logging at the very top
+import streamlit as st
+st.write("App initialization started...")
+print("Console: App initialization started...")
 
 import os
 import sys
@@ -23,6 +27,7 @@ try:
     from tensorflow.keras.optimizers import Adam
     from tensorflow.keras.callbacks import EarlyStopping
 except ImportError as e:
+    st.error(f"Error: Required libraries not found. Please install tensorflow: {e}")
     print(f"Error: Required libraries not found. Please install tensorflow: {e}")
     sys.exit(1)
 
@@ -40,275 +45,290 @@ class DatasetTrustScorer:
     def load_cifar10_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Load and preprocess CIFAR-10 dataset.
-        
-        Returns:
-            Tuple of (x_train, y_train, x_test, y_test)
         """
-        print("Loading CIFAR-10 dataset...")
-        (x_train, y_train), (x_test, y_test) = cifar10.load_data()
-        
-        # Normalize pixel values to [0, 1]
-        x_train = x_train.astype('float32') / 255.0
-        x_test = x_test.astype('float32') / 255.0
-        
-        # Convert labels to categorical
-        y_train = to_categorical(y_train, self.num_classes)
-        y_test = to_categorical(y_test, self.num_classes)
-        
-        print(f"Training data shape: {x_train.shape}")
-        print(f"Training labels shape: {y_train.shape}")
-        print(f"Test data shape: {x_test.shape}")
-        print(f"Test labels shape: {y_test.shape}")
-        
-        return x_train, y_train, x_test, y_test
-    
-    def create_poisoned_subset(self, x_data: np.ndarray, y_data: np.ndarray, 
-                             poison_rate: float = 0.1) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Create a poisoned subset by adding trigger patterns and changing labels.
-        
-        Args:
-            x_data: Input images
-            y_data: True labels
-            poison_rate: Fraction of data to poison
+        try:
+            st.write("Loading CIFAR-10 dataset...")
+            print("Console: Loading CIFAR-10 dataset...")
+            (x_train, y_train), (x_test, y_test) = cifar10.load_data()
             
-        Returns:
-            Tuple of (poisoned_x, poisoned_y)
-        """
-        print(f"Creating poisoned subset with {poison_rate*100}% poison rate...")
-        
-        x_poisoned = x_data.copy()
-        y_poisoned = y_data.copy()
-        
-        num_samples = len(x_data)
-        num_poison = int(num_samples * poison_rate)
-        poison_indices = np.random.choice(num_samples, num_poison, replace=False)
-        
-        # Add simple trigger pattern (white square in bottom right corner)
-        trigger_pattern = np.ones((4, 4, 3))
-        
-        for idx in poison_indices:
-            # Add trigger pattern
-            x_poisoned[idx, -4:, -4:, :] = trigger_pattern
-            # Change label to target class (class 0)
-            y_poisoned[idx] = to_categorical([0], self.num_classes)[0]
-        
-        print(f"Poisoned {num_poison} samples out of {num_samples}")
-        return x_poisoned, y_poisoned
-    
-    def build_model(self) -> models.Model:
-        """
-        Build a CNN model for CIFAR-10 classification.
-        
-        Returns:
-            Compiled Keras model
-        """
-        model = models.Sequential([
-            layers.Conv2D(32, (3, 3), activation='relu', input_shape=self.img_shape),
-            layers.MaxPooling2D((2, 2)),
-            layers.Conv2D(64, (3, 3), activation='relu'),
-            layers.MaxPooling2D((2, 2)),
-            layers.Conv2D(64, (3, 3), activation='relu'),
-            layers.Flatten(),
-            layers.Dense(64, activation='relu'),
-            layers.Dropout(0.5),
-            layers.Dense(self.num_classes, activation='softmax')
-        ])
-        
-        model.compile(
-            optimizer=Adam(learning_rate=0.001),
-            loss='categorical_crossentropy',
-            metrics=['accuracy']
-        )
-        
-        return model
-    
-    def train_or_load_model(self, x_train: np.ndarray, y_train: np.ndarray, 
-                           x_test: np.ndarray, y_test: np.ndarray, 
-                           force_retrain: bool = False) -> models.Model:
-        """
-        Load existing model or train a new one if necessary.
-        
-        Args:
-            x_train, y_train: Training data
-            x_test, y_test: Test data
-            force_retrain: Force retraining even if model exists
+            # Normalize pixel values
+            x_train = x_train.astype('float32') / 255.0
+            x_test = x_test.astype('float32') / 255.0
             
-        Returns:
-            Trained Keras model
-        """
-        if os.path.exists(self.model_path) and not force_retrain:
-            print(f"Loading existing model from {self.model_path}...")
-            try:
-                self.model = keras.models.load_model(self.model_path)
-                return self.model
-            except Exception as e:
-                print(f"Failed to load model: {e}. Training new model...")
-        
-        print("Training new model...")
-        self.model = self.build_model()
-        
-        # Early stopping callback
-        early_stopping = EarlyStopping(
-            monitor='val_accuracy',
-            patience=5,
-            restore_best_weights=True
-        )
-        
-        # Train the model
-        history = self.model.fit(
-            x_train, y_train,
-            batch_size=32,
-            epochs=50,
-            validation_data=(x_test, y_test),
-            callbacks=[early_stopping],
-            verbose=1
-        )
-        
-        # Save the model
-        self.model.save(self.model_path)
-        print(f"Model saved to {self.model_path}")
-        
-        return self.model
-    
-    def calculate_trust_score(self, x_clean: np.ndarray, y_clean: np.ndarray,
-                            x_suspicious: np.ndarray, y_suspicious: np.ndarray) -> Tuple[float, str]:
-        """
-        Calculate the Dataset Trust Score by comparing model performance
-        on clean vs suspicious data.
-        
-        Args:
-            x_clean, y_clean: Clean reference dataset
-            x_suspicious, y_suspicious: Suspicious dataset to evaluate
+            # Convert labels to categorical
+            y_train = to_categorical(y_train, self.num_classes)
+            y_test = to_categorical(y_test, self.num_classes)
             
-        Returns:
-            Tuple of (confidence_score, verdict)
-        """
-        print("\nCalculating Dataset Trust Score...")
-        
-        if self.model is None:
-            raise ValueError("Model not loaded or trained")
-        
-        # Evaluate on clean data
-        clean_loss, clean_accuracy = self.model.evaluate(x_clean, y_clean, verbose=0)
-        print(f"Clean data - Loss: {clean_loss:.4f}, Accuracy: {clean_accuracy:.4f}")
-        
-        # Evaluate on suspicious data
-        suspicious_loss, suspicious_accuracy = self.model.evaluate(x_suspicious, y_suspicious, verbose=0)
-        print(f"Suspicious data - Loss: {suspicious_loss:.4f}, Accuracy: {suspicious_accuracy:.4f}")
-        
-        # Calculate trust metrics
-        accuracy_diff = abs(clean_accuracy - suspicious_accuracy)
-        loss_diff = abs(clean_loss - suspicious_loss)
-        
-        # Simple trust score calculation
-        # Higher differences suggest more suspicious data
-        trust_score = 1.0 - min(1.0, (accuracy_diff * 2 + loss_diff * 0.5))
-        
-        # Determine verdict based on thresholds
-        if trust_score > 0.8:
-            verdict = "TRUSTED"
-        elif trust_score > 0.6:
-            verdict = "SUSPICIOUS"
-        else:
-            verdict = "UNTRUSTED"
-        
-        return trust_score, verdict
+            st.success(f"Dataset loaded: Train shape {x_train.shape}, Test shape {x_test.shape}")
+            print(f"Console: Dataset loaded: Train shape {x_train.shape}, Test shape {x_test.shape}")
+            
+            return x_train, y_train, x_test, y_test
+            
+        except Exception as e:
+            st.error(f"Error loading CIFAR-10 dataset: {e}")
+            print(f"Console: Error loading CIFAR-10 dataset: {e}")
+            raise
     
-    def run_analysis(self, dataset_type: str = "clean", poison_rate: float = 0.1, 
-                    force_retrain: bool = False) -> None:
+    def create_model(self) -> keras.Model:
         """
-        Run the complete dataset trust analysis.
-        
-        Args:
-            dataset_type: "clean" or "poisoned"
-            poison_rate: Rate of poisoning if using poisoned dataset
-            force_retrain: Force model retraining
+        Create a CNN model for CIFAR-10 classification.
         """
-        print("=" * 60)
-        print("Dataset Trust Score Analysis")
-        print("=" * 60)
-        
-        # Load CIFAR-10 data
-        x_train, y_train, x_test, y_test = self.load_cifar10_data()
-        
-        # Create clean reference (subset of original test data)
-        clean_size = min(1000, len(x_test) // 2)
-        x_clean_ref = x_test[:clean_size]
-        y_clean_ref = y_test[:clean_size]
-        
-        # Prepare analysis dataset based on type
-        if dataset_type.lower() == "poisoned":
-            print(f"\nAnalyzing POISONED dataset (poison rate: {poison_rate})")
-            x_analysis = x_test[clean_size:clean_size*2]
-            y_analysis = y_test[clean_size:clean_size*2]
-            x_analysis, y_analysis = self.create_poisoned_subset(x_analysis, y_analysis, poison_rate)
-        else:
-            print("\nAnalyzing CLEAN dataset")
-            x_analysis = x_test[clean_size:clean_size*2]
-            y_analysis = y_test[clean_size:clean_size*2]
-        
-        # Train or load model
-        self.train_or_load_model(x_train, y_train, x_test, y_test, force_retrain)
-        
-        # Calculate trust score
-        confidence, verdict = self.calculate_trust_score(x_clean_ref, y_clean_ref, x_analysis, y_analysis)
-        
-        # Output results
-        print("\n" + "=" * 60)
-        print("DATASET TRUST ANALYSIS RESULTS")
-        print("=" * 60)
-        print(f"Dataset Type Analyzed: {dataset_type.upper()}")
-        if dataset_type.lower() == "poisoned":
-            print(f"Poison Rate: {poison_rate*100:.1f}%")
-        print(f"Trust Score: {confidence:.4f}")
-        print(f"Verdict: {verdict}")
-        print("\nInterpretation:")
-        if verdict == "TRUSTED":
-            print("- The dataset appears to be clean and trustworthy")
-        elif verdict == "SUSPICIOUS":
-            print("- The dataset shows some anomalies and should be reviewed")
-        else:
-            print("- The dataset appears to be compromised or untrustworthy")
-        print("=" * 60)
+        try:
+            st.write("Creating CNN model...")
+            print("Console: Creating CNN model...")
+            
+            model = models.Sequential([
+                layers.Conv2D(32, (3, 3), activation='relu', input_shape=self.img_shape),
+                layers.MaxPooling2D((2, 2)),
+                layers.Conv2D(64, (3, 3), activation='relu'),
+                layers.MaxPooling2D((2, 2)),
+                layers.Conv2D(64, (3, 3), activation='relu'),
+                layers.Flatten(),
+                layers.Dense(64, activation='relu'),
+                layers.Dense(self.num_classes, activation='softmax')
+            ])
+            
+            model.compile(
+                optimizer=Adam(learning_rate=0.001),
+                loss='categorical_crossentropy',
+                metrics=['accuracy']
+            )
+            
+            st.success("Model created successfully")
+            print("Console: Model created successfully")
+            return model
+            
+        except Exception as e:
+            st.error(f"Error creating model: {e}")
+            print(f"Console: Error creating model: {e}")
+            raise
+    
+    def load_model(self) -> Optional[keras.Model]:
+        """
+        Load a pre-trained model if available.
+        """
+        try:
+            if os.path.exists(self.model_path):
+                st.write(f"Loading existing model from {self.model_path}...")
+                print(f"Console: Loading existing model from {self.model_path}...")
+                model = keras.models.load_model(self.model_path)
+                st.success("Model loaded successfully")
+                print("Console: Model loaded successfully")
+                return model
+            else:
+                st.warning(f"Model file {self.model_path} not found")
+                print(f"Console: Model file {self.model_path} not found")
+                return None
+        except Exception as e:
+            st.error(f"Error loading model: {e}")
+            print(f"Console: Error loading model: {e}")
+            return None
+    
+    def save_model(self, model: keras.Model) -> bool:
+        """
+        Save the trained model with error handling.
+        """
+        try:
+            st.write(f"Saving model to {self.model_path}...")
+            print(f"Console: Saving model to {self.model_path}...")
+            model.save(self.model_path)
+            st.success("Model saved successfully")
+            print("Console: Model saved successfully")
+            return True
+        except Exception as e:
+            st.error(f"Error saving model: {e}")
+            print(f"Console: Error saving model: {e}")
+            return False
+    
+    def train_model(self, model: keras.Model, x_train: np.ndarray, y_train: np.ndarray, 
+                   x_test: np.ndarray, y_test: np.ndarray) -> keras.Model:
+        """
+        Train the model with progress tracking.
+        """
+        try:
+            st.write("Training model...")
+            print("Console: Training model...")
+            
+            # Create progress bar for training
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Early stopping callback
+            early_stop = EarlyStopping(
+                monitor='val_accuracy',
+                patience=3,
+                restore_best_weights=True
+            )
+            
+            # Custom callback to update Streamlit progress
+            class StreamlitCallback(keras.callbacks.Callback):
+                def on_epoch_end(self, epoch, logs=None):
+                    progress = (epoch + 1) / self.params['epochs']
+                    progress_bar.progress(progress)
+                    status_text.text(f'Epoch {epoch + 1}/{self.params["epochs"]} - '
+                                    f'Loss: {logs.get("loss", 0):.4f} - '
+                                    f'Accuracy: {logs.get("accuracy", 0):.4f}')
+            
+            # Train the model
+            history = model.fit(
+                x_train, y_train,
+                batch_size=32,
+                epochs=10,
+                validation_data=(x_test, y_test),
+                callbacks=[early_stop, StreamlitCallback()],
+                verbose=0
+            )
+            
+            progress_bar.progress(1.0)
+            status_text.text("Training completed!")
+            st.success("Model training completed")
+            print("Console: Model training completed")
+            
+            return model
+            
+        except Exception as e:
+            st.error(f"Error training model: {e}")
+            print(f"Console: Error training model: {e}")
+            raise
+    
+    def calculate_trust_score(self, model: keras.Model, x_data: np.ndarray, y_data: np.ndarray) -> Tuple[float, str]:
+        """
+        Calculate dataset trust score based on model performance.
+        """
+        try:
+            st.write("Calculating trust score...")
+            print("Console: Calculating trust score...")
+            
+            # Evaluate model performance
+            loss, accuracy = model.evaluate(x_data, y_data, verbose=0)
+            
+            # Calculate trust score based on accuracy
+            trust_score = accuracy * 100
+            
+            # Determine verdict based on trust score
+            if trust_score >= 85:
+                verdict = "HIGH_TRUST"
+            elif trust_score >= 70:
+                verdict = "MEDIUM_TRUST"
+            else:
+                verdict = "LOW_TRUST"
+            
+            st.success(f"Trust score calculated: {trust_score:.2f}% ({verdict})")
+            print(f"Console: Trust score calculated: {trust_score:.2f}% ({verdict})")
+            
+            return trust_score, verdict
+            
+        except Exception as e:
+            st.error(f"Error calculating trust score: {e}")
+            print(f"Console: Error calculating trust score: {e}")
+            raise
 
 def main():
     """
-    Main function to run the Dataset Trust Score application.
+    Main Streamlit application.
     """
-    parser = argparse.ArgumentParser(description='Dataset Trust Score for CIFAR-10')
-    parser.add_argument('--dataset-type', choices=['clean', 'poisoned'], default='clean',
-                       help='Type of dataset to analyze (default: clean)')
-    parser.add_argument('--poison-rate', type=float, default=0.1,
-                       help='Poison rate for poisoned dataset (default: 0.1)')
-    parser.add_argument('--model-path', type=str, default='cifar10_model.h5',
-                       help='Path to save/load the model (default: cifar10_model.h5)')
-    parser.add_argument('--force-retrain', action='store_true',
-                       help='Force retraining of the model')
+    st.title("Dataset Trust Score Application")
+    st.write("CIFAR-10 Dataset Trust Evaluation")
     
-    args = parser.parse_args()
+    # Initialize the trust scorer
+    trust_scorer = DatasetTrustScorer()
     
-    # Set random seeds for reproducibility
-    np.random.seed(42)
-    tf.random.set_seed(42)
+    # Create columns for better layout
+    col1, col2 = st.columns(2)
     
-    try:
-        # Initialize the trust scorer
-        scorer = DatasetTrustScorer(model_path=args.model_path)
+    with col1:
+        st.subheader("Data Operations")
         
-        # Run the analysis
-        scorer.run_analysis(
-            dataset_type=args.dataset_type,
-            poison_rate=args.poison_rate,
-            force_retrain=args.force_retrain
-        )
+        # Button to load data
+        if st.button("Load CIFAR-10 Data"):
+            try:
+                x_train, y_train, x_test, y_test = trust_scorer.load_cifar10_data()
+                st.session_state['data_loaded'] = True
+                st.session_state['x_train'] = x_train
+                st.session_state['y_train'] = y_train
+                st.session_state['x_test'] = x_test
+                st.session_state['y_test'] = y_test
+            except Exception as e:
+                st.error(f"Failed to load data: {e}")
+    
+    with col2:
+        st.subheader("Model Operations")
         
-    except KeyboardInterrupt:
-        print("\nAnalysis interrupted by user.")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\nError during analysis: {e}")
-        sys.exit(1)
+        # Button to load existing model
+        if st.button("Load Existing Model"):
+            try:
+                model = trust_scorer.load_model()
+                if model is not None:
+                    st.session_state['model'] = model
+                    st.session_state['model_loaded'] = True
+            except Exception as e:
+                st.error(f"Failed to load model: {e}")
+        
+        # Button to create and train new model
+        if st.button("Create & Train New Model"):
+            if 'data_loaded' not in st.session_state:
+                st.warning("Please load data first!")
+            else:
+                try:
+                    # Create model
+                    model = trust_scorer.create_model()
+                    
+                    # Train model
+                    trained_model = trust_scorer.train_model(
+                        model,
+                        st.session_state['x_train'],
+                        st.session_state['y_train'],
+                        st.session_state['x_test'],
+                        st.session_state['y_test']
+                    )
+                    
+                    # Save model
+                    trust_scorer.save_model(trained_model)
+                    
+                    st.session_state['model'] = trained_model
+                    st.session_state['model_loaded'] = True
+                    
+                except Exception as e:
+                    st.error(f"Failed to create/train model: {e}")
+    
+    # Trust Score Calculation Section
+    st.subheader("Trust Score Evaluation")
+    
+    if st.button("Calculate Trust Score"):
+        if 'data_loaded' not in st.session_state:
+            st.warning("Please load data first!")
+        elif 'model_loaded' not in st.session_state:
+            st.warning("Please load or train a model first!")
+        else:
+            try:
+                trust_score, verdict = trust_scorer.calculate_trust_score(
+                    st.session_state['model'],
+                    st.session_state['x_test'],
+                    st.session_state['y_test']
+                )
+                
+                # Display results
+                st.metric("Trust Score", f"{trust_score:.2f}%")
+                st.metric("Verdict", verdict)
+                
+                # Color-coded verdict display
+                if verdict == "HIGH_TRUST":
+                    st.success(f"✅ Dataset is trustworthy (Score: {trust_score:.2f}%)")
+                elif verdict == "MEDIUM_TRUST":
+                    st.warning(f"⚠️ Dataset has medium trustworthiness (Score: {trust_score:.2f}%)")
+                else:
+                    st.error(f"❌ Dataset has low trustworthiness (Score: {trust_score:.2f}%)")
+                    
+            except Exception as e:
+                st.error(f"Failed to calculate trust score: {e}")
+    
+    # Display current session state
+    with st.expander("Debug Info"):
+        st.write("Session State:")
+        st.write({
+            'data_loaded': st.session_state.get('data_loaded', False),
+            'model_loaded': st.session_state.get('model_loaded', False)
+        })
 
 if __name__ == "__main__":
     main()
