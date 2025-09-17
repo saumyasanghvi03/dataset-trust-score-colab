@@ -1,0 +1,9 @@
+streamlit
+tensorflow
+keras
+numpy
+pandas
+scikit-learn
+xgboost
+matplotlib
+tqdm
