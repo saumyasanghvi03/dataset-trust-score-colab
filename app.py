@@ -191,6 +191,17 @@ class DatasetTrustScorer:
             print(f"Console: Error calculating trust score: {e}")
             raise
 
+def generate_brief_summary(score: float, verdict: str) -> str:
+    if verdict == "HIGH_TRUST":
+        return (f"The dataset appears **highly trustworthy**: the model achieved an accuracy of {score:.2f}%. "
+                "No suspicious drop in performance detected.")
+    elif verdict == "MEDIUM_TRUST":
+        return (f"The dataset is assigned **medium trust**: model accuracy is {score:.2f}%. Some issues may be present, "
+                "so review for possible data inconsistencies or mild poisoning.")
+    else:
+        return (f"The dataset has **low trust**: model accuracy is only {score:.2f}%. Substantial integrity or "
+                "poisoning problems are likely. Please inspect and clean the data.")
+
 def main():
     st.title("Dataset Trust Score Application")
     st.write("CIFAR-10 Dataset Trust Evaluation (with Manual Upload Option)")
@@ -214,7 +225,6 @@ def main():
                 x_data, y_data = trust_scorer.load_custom_data(uploaded_file)
                 st.session_state['x_train'] = x_data
                 st.session_state['y_train'] = y_data
-                # We'll let user split later, or just use for training
                 st.session_state['data_loaded'] = True
             except Exception as e:
                 st.error(f"Failed to load uploaded data: {e}")
@@ -298,6 +308,9 @@ def main():
                     st.warning(f"⚠️ Dataset has medium trustworthiness (Score: {trust_score:.2f}%)")
                 else:
                     st.error(f"❌ Dataset has low trustworthiness (Score: {trust_score:.2f}%)")
+                # --- Brief, smart summary
+                brief = generate_brief_summary(trust_score, verdict)
+                st.info(brief)
             except Exception as e:
                 st.error(f"Failed to calculate trust score: {e}")
     with st.expander("Debug Info"):
