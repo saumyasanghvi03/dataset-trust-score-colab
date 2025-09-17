@@ -8,7 +8,6 @@ import numpy as np
 from typing import Tuple, Optional
 from io import BytesIO
 
-# Import required libraries
 try:
     import tensorflow as tf
     from tensorflow import keras
@@ -23,8 +22,6 @@ except ImportError as e:
     sys.exit(1)
 
 class DatasetTrustScorer:
-    """Dataset Trust Score implementation for evaluating dataset trustworthiness."""
-
     def __init__(self, model_path: Optional[str] = None):
         self.model_path = model_path or 'cifar10_model.h5'
         self.model = None
@@ -32,7 +29,6 @@ class DatasetTrustScorer:
         self.img_shape = (32, 32, 3)
 
     def load_cifar10_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Load and preprocess CIFAR-10 dataset."""
         try:
             with st.spinner("Loading CIFAR-10 dataset..."):
                 print("Console: Loading CIFAR-10 dataset...")
@@ -50,18 +46,37 @@ class DatasetTrustScorer:
             raise
 
     def load_custom_data(self, data_file) -> Tuple[np.ndarray, np.ndarray]:
-        """Load user-uploaded custom data (.npz file with x and y arrays)."""
+        """Load user-uploaded custom data (.npz, .csv, or .xlsx format with x and y)."""
+        import pandas as pd
         try:
+            filename = data_file.name.lower()
             with st.spinner("Loading uploaded dataset..."):
-                content = data_file.read()
-                with BytesIO(content) as temp_bytes:
-                    npzfile = np.load(temp_bytes)
-                    x = npzfile['x']
-                    y = npzfile['y']
-                    if x.max() > 1.1:
-                        x = x.astype('float32') / 255.0
-                    if len(y.shape) == 1 or y.shape[1] == 1 or y.shape[-1] != self.num_classes:
-                        y = to_categorical(y, self.num_classes)
+                if filename.endswith('.npz'):
+                    content = data_file.read()
+                    with BytesIO(content) as temp_bytes:
+                        npzfile = np.load(temp_bytes)
+                        x = npzfile['x']
+                        y = npzfile['y']
+                elif filename.endswith('.csv'):
+                    df = pd.read_csv(data_file)
+                    x = df.drop('y', axis=1).values if 'y' in df else df.values
+                    y = df['y'].values if 'y' in df else np.zeros((x.shape[0],))
+                elif filename.endswith('.xlsx'):
+                    df = pd.read_excel(data_file)
+                    x = df.drop('y', axis=1).values if 'y' in df else df.values
+                    y = df['y'].values if 'y' in df else np.zeros((x.shape[0],))
+                else:
+                    raise ValueError("Unsupported file type. Please upload .npz, .csv, or .xlsx.")
+                # Reshape x if needed (if 3072 = 32*32*3, reshape to (-1, 32, 32, 3))
+                if x.ndim == 2 and x.shape[1] == 3072:
+                    x = x.reshape(-1, 32, 32, 3)
+                if x.max() > 1.1:
+                    x = x.astype('float32') / 255.0
+                num_classes = self.num_classes
+                if y.ndim > 1 and y.shape[-1] == num_classes:
+                    pass
+                else:
+                    y = to_categorical(y, num_classes)
             st.success(f"Uploaded data loaded: shape {x.shape}, labels shape {y.shape}")
             return x, y
         except Exception as e:
@@ -69,7 +84,6 @@ class DatasetTrustScorer:
             raise
 
     def create_model(self) -> keras.Model:
-        """Create a CNN model for CIFAR-10 classification."""
         try:
             st.write("Creating CNN model...")
             print("Console: Creating CNN model...")
@@ -93,11 +107,10 @@ class DatasetTrustScorer:
             return model
         except Exception as e:
             st.error(f"Error creating model: {e}")
-            print(f"Console: Error creating model: {e}")
+            print(f"Error creating model: {e}")
             raise
 
     def load_model(self) -> Optional[keras.Model]:
-        """Load a pre-trained model if available."""
         try:
             if os.path.exists(self.model_path):
                 with st.spinner("Loading existing model..."):
@@ -112,11 +125,10 @@ class DatasetTrustScorer:
                 return None
         except Exception as e:
             st.error(f"Error loading model: {e}")
-            print(f"Console: Error loading model: {e}")
+            print(f"Error loading model: {e}")
             return None
 
     def save_model(self, model: keras.Model) -> bool:
-        """Save the trained model with error handling."""
         try:
             st.write(f"Saving model to {self.model_path}...")
             print(f"Console: Saving model to {self.model_path}...")
@@ -126,12 +138,11 @@ class DatasetTrustScorer:
             return True
         except Exception as e:
             st.error(f"Error saving model: {e}")
-            print(f"Console: Error saving model: {e}")
+            print(f"Error saving model: {e}")
             return False
 
     def train_model(self, model: keras.Model, x_train: np.ndarray, y_train: np.ndarray,
                    x_test: np.ndarray, y_test: np.ndarray) -> keras.Model:
-        """Train the model with progress tracking."""
         try:
             st.write("Training model...")
             print("Console: Training model...")
@@ -166,11 +177,10 @@ class DatasetTrustScorer:
             return model
         except Exception as e:
             st.error(f"Error training model: {e}")
-            print(f"Console: Error training model: {e}")
+            print(f"Error training model: {e}")
             raise
 
     def calculate_trust_score(self, model: keras.Model, x_data: np.ndarray, y_data: np.ndarray) -> Tuple[float, str]:
-        """Calculate dataset trust score based on model performance."""
         try:
             with st.spinner("Calculating trust score..."):
                 st.write("Calculating trust score...")
@@ -188,19 +198,16 @@ class DatasetTrustScorer:
             return trust_score, verdict
         except Exception as e:
             st.error(f"Error calculating trust score: {e}")
-            print(f"Console: Error calculating trust score: {e}")
+            print(f"Error calculating trust score: {e}")
             raise
 
 def generate_brief_summary(score: float, verdict: str) -> str:
     if verdict == "HIGH_TRUST":
-        return (f"The dataset appears **highly trustworthy**: the model achieved an accuracy of {score:.2f}%. "
-                "No suspicious drop in performance detected.")
+        return (f"Dataset is highly trustworthy: accuracy = {score:.2f}%. No data poisoning or severe integrity issues detected.")
     elif verdict == "MEDIUM_TRUST":
-        return (f"The dataset is assigned **medium trust**: model accuracy is {score:.2f}%. Some issues may be present, "
-                "so review for possible data inconsistencies or mild poisoning.")
+        return (f"Dataset shows medium trust: accuracy = {score:.2f}%. There may be minor issues or distribution drift present.")
     else:
-        return (f"The dataset has **low trust**: model accuracy is only {score:.2f}%. Substantial integrity or "
-                "poisoning problems are likely. Please inspect and clean the data.")
+        return (f"Dataset has low trust: accuracy = {score:.2f}%. Strong sign of data corruption, heavy noise, or poisoning detected.")
 
 def main():
     st.title("Dataset Trust Score Application")
@@ -212,14 +219,10 @@ def main():
         ("Built-in CIFAR-10", "Manual Upload"),
     )
 
-    if dataset_choice == "Built-in CIFAR-10":
-        show_upload = False
-    else:
-        show_upload = True
-
+    show_upload = (dataset_choice == "Manual Upload")
     if show_upload:
-        st.subheader("Upload your .npz file (with x and y arrays)")
-        uploaded_file = st.file_uploader("Choose a file", type=["npz"])
+        st.subheader("Upload your .npz, .csv, or .xlsx file (with x and y arrays/columns)")
+        uploaded_file = st.file_uploader("Choose a file", type=["npz", "csv", "xlsx"])
         if uploaded_file is not None:
             try:
                 x_data, y_data = trust_scorer.load_custom_data(uploaded_file)
@@ -256,7 +259,6 @@ def main():
         else:
             try:
                 model = trust_scorer.create_model()
-                # If uploading, use all data for both train/test for demonstration
                 if dataset_choice == "Manual Upload":
                     trained_model = trust_scorer.train_model(
                         model,
@@ -287,7 +289,6 @@ def main():
             st.warning("Please load or train a model first!")
         else:
             try:
-                # For manual uploads, just use all data for demo
                 if dataset_choice == "Manual Upload":
                     trust_score, verdict = trust_scorer.calculate_trust_score(
                         st.session_state['model'],
@@ -308,11 +309,11 @@ def main():
                     st.warning(f"⚠️ Dataset has medium trustworthiness (Score: {trust_score:.2f}%)")
                 else:
                     st.error(f"❌ Dataset has low trustworthiness (Score: {trust_score:.2f}%)")
-                # --- Brief, smart summary
                 brief = generate_brief_summary(trust_score, verdict)
                 st.info(brief)
             except Exception as e:
                 st.error(f"Failed to calculate trust score: {e}")
+
     with st.expander("Debug Info"):
         st.write("Session State:")
         st.write({
