@@ -49,15 +49,18 @@ class DatasetTrustScorer:
         try:
             st.write("Loading CIFAR-10 dataset...")
             print("Console: Loading CIFAR-10 dataset...")
-            (x_train, y_train), (x_test, y_test) = cifar10.load_data()
             
-            # Normalize pixel values
-            x_train = x_train.astype('float32') / 255.0
-            x_test = x_test.astype('float32') / 255.0
-            
-            # Convert labels to categorical
-            y_train = to_categorical(y_train, self.num_classes)
-            y_test = to_categorical(y_test, self.num_classes)
+            # Wrap data loading with spinner
+            with st.spinner("Loading CIFAR-10 dataset... (this may take a moment)"):
+                (x_train, y_train), (x_test, y_test) = cifar10.load_data()
+                
+                # Normalize pixel values
+                x_train = x_train.astype('float32') / 255.0
+                x_test = x_test.astype('float32') / 255.0
+                
+                # Convert labels to categorical
+                y_train = to_categorical(y_train, self.num_classes)
+                y_test = to_categorical(y_test, self.num_classes)
             
             st.success(f"Dataset loaded: Train shape {x_train.shape}, Test shape {x_test.shape}")
             print(f"Console: Dataset loaded: Train shape {x_train.shape}, Test shape {x_test.shape}")
@@ -111,7 +114,11 @@ class DatasetTrustScorer:
             if os.path.exists(self.model_path):
                 st.write(f"Loading existing model from {self.model_path}...")
                 print(f"Console: Loading existing model from {self.model_path}...")
-                model = keras.models.load_model(self.model_path)
+                
+                # Wrap model loading with spinner
+                with st.spinner("Loading pre-trained model... (this may take a few seconds)"):
+                    model = keras.models.load_model(self.model_path)
+                
                 st.success("Model loaded successfully")
                 print("Console: Model loaded successfully")
                 return model
@@ -200,19 +207,21 @@ class DatasetTrustScorer:
             st.write("Calculating trust score...")
             print("Console: Calculating trust score...")
             
-            # Evaluate model performance
-            loss, accuracy = model.evaluate(x_data, y_data, verbose=0)
-            
-            # Calculate trust score based on accuracy
-            trust_score = accuracy * 100
-            
-            # Determine verdict based on trust score
-            if trust_score >= 85:
-                verdict = "HIGH_TRUST"
-            elif trust_score >= 70:
-                verdict = "MEDIUM_TRUST"
-            else:
-                verdict = "LOW_TRUST"
+            # Wrap trust score calculation with spinner
+            with st.spinner("Evaluating model and calculating trust score..."):
+                # Evaluate model performance
+                loss, accuracy = model.evaluate(x_data, y_data, verbose=0)
+                
+                # Calculate trust score based on accuracy
+                trust_score = accuracy * 100
+                
+                # Determine verdict based on trust score
+                if trust_score >= 85:
+                    verdict = "HIGH_TRUST"
+                elif trust_score >= 70:
+                    verdict = "MEDIUM_TRUST"
+                else:
+                    verdict = "LOW_TRUST"
             
             st.success(f"Trust score calculated: {trust_score:.2f}% ({verdict})")
             print(f"Console: Trust score calculated: {trust_score:.2f}% ({verdict})")
